@@ -1,0 +1,393 @@
+---
+title: "Projekt zaliczeniowy WDAD - analiza zestawu danych pakietu palmerpenguins"
+author: "Maciej Kuśnierz"
+output: html_document
+css: styles.css
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=T,
+                      message = FALSE,
+                      warning = FALSE,
+                      fig.align = "center")
+options(tibble.width = Inf)
+cat("
+<style>
+img { display: block; }
+</style>
+")
+```
+
+# Rozpoczęcie pracy
+Poniżej prezentowany projekt będzie dotyczył analizy danych zawartych w pakiecie palmerpenguins. 
+Zacznijmy od zapoznania się z tymi danymi.
+
+```{r}
+library(psych)
+library(mice)
+library(palmerpenguins)
+library(rlang)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(corrplot)
+library(dunn.test)
+head(penguins)
+head(penguins_raw)
+str(penguins)
+str(penguins_raw)
+```
+
+Po podstawowym zapoznaniu chciałbym nieznacznie zmienić dane na których będę operował.
+
+```{r}
+colnames(penguins) <- c("gatunek","wyspa","dlugosc_dzioba_mm","wysokosc_dzioba_mm",
+                        "dlugosc_pletwy_mm", "waga_g","plec","rok")
+proporcja_dzioba <- round(penguins$dlugosc_dzioba_mm/penguins$wysokosc_dzioba_mm,3)
+penguins <- cbind(penguins, proporcja_dzioba)
+penguins <- cbind(penguins, penguins_raw[,15:16])
+colnames(penguins) <- c("gatunek", "wyspa", "dlugosc_dzioba_mm", "wysokosc_dzioba_mm",
+                        "dlugosc_pletwy_mm", "waga_g", "plec", "rok", "proporcja_dzioba", "delta15N", "delta13C")
+summary(penguins)
+```
+
+Analizę zacznijmy od graficznego przedstawienia części informacji zawartych powyżej.
+
+```{r}
+penguins %>%
+  ggplot() +
+  geom_bar(aes(x = wyspa),fill = "lightblue") +
+  scale_y_continuous(breaks = seq(0, 150, by = 25)) +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16),
+        base_size = 18,
+        plot.title = element_text(size = 18)) +
+  labs(x = "Wyspa",
+       y = "Ilość pingwinów na wyspie")
+
+penguins %>%
+  ggplot +
+  geom_bar(aes(x = gatunek, fill = gatunek)) +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16),
+        base_size = 18,
+        plot.title = element_text(size = 18)) +
+  labs(x = "Gatunek",
+       y = "Ilość pingwinów danego gatunku")
+```
+
+Następnie zobaczmy ile pingwinów poszczególnych gatunków znajduje się na danej wyspie.
+
+```{r}
+penguins %>%
+  ggplot() +
+  geom_bar(aes(x = wyspa, fill = gatunek),
+           position = position_dodge2(preserve = 'single')) +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16),
+        base_size = 18,
+        plot.title = element_text(size = 18)) +
+  scale_y_continuous(breaks = seq(0, 150, by = 25)) +
+  labs(title = "Ilość pingwinów danego gatunku na poszczególnych wyspach",
+       x = "Wyspa",
+       y = "Liczba pingwinóww",
+       fill = "Gatunek")
+```
+
+Można zauważyć, że Adelie jako jedyne znajdują się na więcej niż jednej wyspie, co więcej znajdują sie na wszystkich trzech. Sprawdźmy więc czy istnieją różnice dla gatunku Adelie pomiędzy poszczególnymi wyspami.
+
+```{r}
+na.omit(penguins[penguins$gatunek == "Adelie", ]) %>%
+  group_by(wyspa) %>%
+  summarise(srednia_dlugosc_pletwy = mean(dlugosc_pletwy_mm),
+            srednia_dlugosc_dzioba = mean(dlugosc_dzioba_mm),
+            srednia_wysokosc_dzioba = mean(wysokosc_dzioba_mm),
+            srednia_waga = mean(waga_g))
+
+penguins[penguins$gatunek=="Adelie", ] %>%
+  ggplot() +
+  geom_boxplot(aes(x = wyspa, y = dlugosc_pletwy_mm)) +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16),
+        base_size = 18,
+        plot.title = element_text(size = 18)) +
+  labs(title = "Wyspa, a długość płetwy pingwinow Adelie",
+       x = "Wyspa",
+       y = "Długość płetwy w mm")
+
+dunn.test(penguins[penguins$gatunek == "Adelie", ]$dlugosc_pletwy_mm, penguins[penguins$gatunek == "Adelie",]$wyspa)
+dunn.test(penguins[penguins$gatunek == "Adelie", ]$dlugosc_dzioba_mm, penguins[penguins$gatunek == "Adelie",]$wyspa)
+dunn.test(penguins[penguins$gatunek == "Adelie", ]$wysokosc_dzioba_mm, penguins[penguins$gatunek == "Adelie",]$wyspa)
+dunn.test(penguins[penguins$gatunek == "Adelie", ]$waga_g, penguins[penguins$gatunek == "Adelie", ]$wyspa)
+
+```
+
+Nie widać istotnych zmian w zależności od wyspy (dodatkowo p-value > 0.025 dla każdego z przypadków). 
+Zobaczmy czy dodatkowy podział na płeć wpłynie na różnicę pomiędzy wyspami.
+
+```{r}
+na.omit(penguins[penguins$gatunek=="Adelie", ]) %>%
+  group_by(plec, wyspa) %>%
+  summarise(srednia_dlugosc_pletwy = mean(dlugosc_pletwy_mm),
+            srednia_dlugosc_dzioba = mean(dlugosc_dzioba_mm),
+            srednia_wysokosc_dzioba = mean(wysokosc_dzioba_mm),
+            srednia_waga = mean(waga_g))
+```
+
+Tutaj też niestety nie widać żadnych istotnych zmian w kontekście różnic pomiędzy wyspami. Dalsze rozkładanie grup na pomniejsze czynniki jest niewskazane ze względu na bardzo szybko malejącą ilość rekordów dla poszczególnych grup parametrów (im więcej parametrów tym większy podział na coraz mniejsze grupy). Przy 152 przebadanych okazach (Adelie) należy być w tym wypadku ostrożnym.
+Poprzedni podział na płeć pomimo, że nie ukazał żadnych istotnych zmian dla Adelie na różnych wyspach daje nam jednak informację, że niezależnie od wyspy wiele parametrów dla płci jest różnych dla płci męskiej oraz żeńskiej wśród pinginów.
+Zwróćmy zatem uwagę na prosty podział: jak wygląda rozkład płci na poszczególnych wyspach.
+
+```{r}
+penguins %>%
+  ggplot() +
+  geom_bar(aes(x = wyspa, fill = plec),
+           position = "dodge2") +
+  theme_light() +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16),
+        base_size = 18,
+        plot.title = element_text(size = 18)) +
+  scale_fill_manual(values=c("lightblue","pink","gray")) +
+  labs(title = "Ilość pingwinów danej płci na poszczególnych wyspach",
+       x = "Wyspa",
+       y = "Liczba pingwinów",
+       fill = "Płeć")
+```
+
+Tak jak można się było spodziewać podział dla każdej z wysp wynosi około 50/50 dla rodzaju męskiego i żeńskiego.
+Zobaczmy uogólnione wartości z podziałem tylko i wyłącznie na płeć.
+
+```{r}
+na.omit(penguins) %>%
+  group_by(plec) %>%
+  summarise(srednia_dlugosc_pletwy=mean(dlugosc_pletwy_mm),
+            srednia_dlugosc_dzioba=mean(dlugosc_dzioba_mm),
+            srednia_wysokosc_dzioba=mean(wysokosc_dzioba_mm),
+            srednia_proporcja_dzioba=mean(proporcja_dzioba),
+            srednia_waga=mean(waga_g))
+```
+
+Jak widać wartości dla płci poza proporcją dzioba nieco się różnią. Zobaczmy w takim razie przykład na wykresach
+
+```{r}
+na.omit(penguins) %>%
+  ggplot() +
+  geom_point(aes(x = dlugosc_pletwy_mm, y = waga_g),
+             size = 1.3) +
+  facet_wrap(~ plec) +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14),
+        base_size = 18,
+        panel.spacing = unit(2, "lines"),
+        plot.title = element_text(size = 18)) +
+  scale_y_continuous(breaks = seq(2500, 6500, by = 500)) +
+  labs(title = "Długość płetwy u pingwina oraz wagi",
+       x = "Długość płetwy w mm",
+       y = "Waga w g")
+```
+
+Porównując oba wykresy różnice wartości pomimo tego, że różnice dla wartości dla obu płci nie są duże, są
+widoczne na wykresie. Spróbujmy wykonać przykładowy test dla różnicy wagi miedzy płciami.
+
+```{r}
+shapiro.test(penguins$waga_g[penguins$plec == "female"])
+shapiro.test(penguins$waga_g[penguins$plec == "male"])
+```
+
+Niestety dane nie mają rozkładu normalnego.
+
+```{r}
+wilcox.test(waga_g ~ plec,
+            data = penguins,
+            alternative = "less")
+```
+
+Wynik testu mówi, o tym, że badane pingwiny płci męskiej są cięższe niż pingwiny płci żeńskiej.
+Odnosząc się jeszcze do ostatniego wykresu - widać lukę pomiedzy zbiorami danych, wydawałoby się, że istnieje jeszcze jakiś czynnik, który to powoduje. Sprobujmy podzielić te dane jeszcze według gatunku.
+
+```{r}
+na.omit(penguins) %>%
+  ggplot() +
+  geom_point(aes(x = dlugosc_pletwy_mm, y = waga_g, color = gatunek),
+             size = 1.3) +
+  facet_wrap(~ plec) +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16),
+        base_size = 18,
+        panel.spacing = unit(2, "lines"),
+        plot.title = element_text(size = 18)) +
+  scale_y_continuous(breaks = seq(2500, 6500, by = 500)) +
+  labs(title = "Długość płetwy u pingwina oraz wagi",
+       x = "Długość płetwy w mm",
+       y = "Waga w g")
+```
+
+Po podziale dodatkowo na gatunek widać powód dlaczego dane są zróżnicowane. Prawdopodobnie każdy z gatunków ma swoje charakterystyczne cechy - jeden może mieć większy dziób, drugi gatunek może mieć wydłużony dziób, a trzeci mieć dużo większą masę niż pozostałe gatunki. Widać tu jeszcze jedną cechę podziału, którą zajmę się nieco później. Zanim natomiast sprawdzimy różnice gatunkowe oraz wspomnianą cechę zwróćmy uwagę na to czy istnieją jakieś zależności między zmiennymi.
+Zacznę najpierw bezpiecznie od obliczenia współczynników korelacji rangowej Spearmana dla zmiennych. Skorzystam z tego właśnie współczynnika ze względu na to, że w poprzedniej próbie ukazała się duża luka pomiędzy danymi oraz bardzo istotny był podział pomiędzy gatunkami.
+
+```{r}
+cor=round(cor(na.omit(penguins[,c("dlugosc_dzioba_mm", "wysokosc_dzioba_mm",
+                                  "dlugosc_pletwy_mm", "waga_g", "rok")]),
+                                   method = "spearman"),2)
+corrplot(cor, method = "number", type = "lower")
+```
+<br>Przede wszystkim powinny nas interesować silne zależności. Myślę, że warto przyjrzeć się nastepującym zależnościom:
+<br>długość płetwy - wysokość dzioba,
+<br>dlugość płetwy - długość dzioba,
+<br>długość płetwy - waga
+<br>ze względu na to, że są najsilniejsze. Zobaczmy jak wygląda zależność pomiędzy wagą w gramach oraz długością płetw
+na wykresach.
+
+```{r}
+na.omit(penguins) %>%
+  ggplot() +
+  geom_point(aes(x = waga_g, y = dlugosc_pletwy_mm),
+             size = 2,
+             color = "lightblue") +
+  theme_light(base_size = 14) +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16),
+        base_size = 18,
+        plot.title = element_text(size = 18)) +
+  labs(title = "Wykres długosci płetwy u pingwinów oraz ich wagi",
+       x = "Długość płetwy w mm",
+       y = "Waga w g")
+```
+
+Bardzo dobrze widać na powyższym wykresie wzrost wagi przy wzroście długości płetwy dla pingwinów.
+Zobaczmy w takim razie jak wygląda jedna z zależności z ujemnym współczynnikiem korelacji.
+
+```{r}
+penguins %>%
+  ggplot() +
+  geom_point(aes(x = dlugosc_pletwy_mm, y = wysokosc_dzioba_mm),
+             size = 2) +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16),
+        base_size = 18,
+        plot.title = element_text(size = 18)) +
+  labs(title = "Długość, a wysokość dzioba",
+       x = "Długość płetwy w mm",
+       y = "Wysokość dzioba w mm")
+```
+
+Patrząc na dane ukazane na wykresie powstają niestety dwa problemy: pierwszym jest widoczna luka w danych, a drugim jest brak oczywistej zależności liniowej. Ponownie spróbujmy podzielić ten wykres na gatunki.
+
+```{r}
+penguins %>%
+  ggplot() +
+  geom_point(aes(x = dlugosc_pletwy_mm, y = wysokosc_dzioba_mm, color=gatunek),
+             size = 2) +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16),
+        base_size = 18,
+        plot.title = element_text(size = 18)) +
+  labs(title = "Długość płetwy a wysokość dzioba",
+       x = "Długosc pletwy w mm",
+       y = "Wysokość dzioba w mm",
+       color="Gatunek")
+```
+
+Widać, że sytuacja po podziale wygląda trochę inaczej. Policzmy ponownie współczynnik korelacji rangowej Spearmana, ale tym razem w zależności od gatunku i tylko dla powyższych parametrów.
+
+```{r}
+na.omit(penguins) %>%
+  group_by(gatunek)%>%
+  summarise(korelacja = cor(dlugosc_pletwy_mm, wysokosc_dzioba_mm, method = "pearson"))
+```
+
+Współczynniki przy podziale na konkretne grupy wyglądają już zupełnie inaczej. Z pewną dozą niepewności można stwierdzić, że sytuacja jest odwrotna do wcześniej oczekiwanej - przy wzroście długości płetwy u pingwinów bardzo często wysokość dzioba również się zwiększa. Kolejnym aspektem na który chciałbym zwrócić uwagę jest wspomnianą przeze mnie wcześniej różnicę przy podziale na płci. U męskich osobników m.in. gatunku Adelie na wykresie "Długość płetwy u pingwina oraz wagi" można zauważyć nieco większe rozproszenie wartości niż u płci przeciwnej.
+
+```{r}
+na.omit(penguins[penguins$gatunek=="Adelie",]) %>%
+  ggplot() +
+  geom_boxplot(aes(x = plec, y = waga_g),
+                   size = 1) +
+  scale_y_continuous(breaks = seq(2700, 5500, by = 200)) +
+  theme_linedraw(base_size = 14) +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16)) +
+  labs(title = "Płeć a waga",
+       x = "Płeć",
+       y = "Waga",
+       color="Gatunek")
+
+na.omit(penguins)%>%
+  group_by(plec) %>%
+  summarise(`odchylenie standardowe` = sd(waga_g))
+```
+
+Na wykresie widać, że zarówno pudełko jak i wąsy dla płci męskiej są nieco bardziej wydłużone niż dla płci żeńskiej. Różnice widać też w wartości odchylenia standardowego dla wagi.
+Odnosząc się dalej do płci chciałbym sprawdzić jeszcze jedną zależność - czy poziom azotu wykryty u pingwinów jest u obu płci taki sam. Zacznijmy od prostej wizualizacji.
+
+```{r}
+na.omit(penguins) %>%
+  ggplot() +
+  geom_boxplot(aes(x = plec, y = delta15N),
+                   size = 1) +
+  theme_linedraw(base_size = 14) +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 16)) +
+  labs(title = "Płeć a poziom azotu 15",
+       x = "Płeć",
+       y = "Poziom azotu 15 w promilach")
+
+shapiro.test(penguins$delta15N[penguins$plec == "male"])
+shapiro.test(penguins$delta15N[penguins$plec == "female"])
+```
+
+Niestety dane nie pochodzą z rozkładu normalnego.
+
+```{r}
+dunn.test(penguins$delta15N, penguins$plec)
+```
+
+Wynik testu wskazuje na to, że nie występują istotne różnice pomiędzy płciami w poziomie azotu 15. Ostatnią rzeczą, którą chciałbym sprawdzić jest to czy istnieje różnica w podłużności dziobów u różnych gatunków.
+
+```{r}
+na.omit(penguins) %>%
+  group_by(gatunek) %>%
+  ggplot() +
+  geom_density(aes(x = proporcja_dzioba), 
+               linewidth = 0.5,
+               alpha = 0.5) +
+  labs(title = "Gatunek a proporcja dzioba",
+       x = "Proporcja dzioba",
+       y = "Częstość względna",
+       fill = "Gatunek") +
+  theme_light(base_size = 14) +
+  theme(axis.text = element_text(size = 15), 
+        axis.title = element_text(size = 16))
+
+shapiro.test(penguins$proporcja_dzioba[penguins$gatunek == "Adelie"])
+shapiro.test(penguins$proporcja_dzioba[penguins$gatunek == "Gentoo"])
+shapiro.test(penguins$proporcja_dzioba[penguins$gatunek == "Chinstrap"])
+```
+
+Niestety założenie p-value>0.05 nie jest spełnione.
+
+```{r}
+dunn.test(penguins$proporcja_dzioba, penguins$gatunek)
+```
+
+Wyniki testu mówią, że należy odrzucić hipotezę, aby te gatunki były statystycznie podobne jeśli chodzi, o podłużność dzioba - różnią się one istotnie.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
