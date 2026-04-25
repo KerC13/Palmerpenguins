@@ -1,5 +1,5 @@
 ---
-title: "Projekt zaliczeniowy WDAD - analiza zestawu danych pakietu palmerpenguins"
+title: "Analiza zestawu danych pakietu palmerpenguins"
 author: "Maciej Kuśnierz"
 output: html_document
 css: styles.css
@@ -349,7 +349,7 @@ Wynik testu wskazuje na to, że nie występują istotne różnice pomiędzy płc
 na.omit(penguins) %>%
   group_by(gatunek) %>%
   ggplot() +
-  geom_density(aes(x = proporcja_dzioba), 
+  geom_density(aes(x = proporcja_dzioba, fill=gatunek), 
                linewidth = 0.5,
                alpha = 0.5) +
   labs(title = "Gatunek a proporcja dzioba",
