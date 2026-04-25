@@ -1,1 +1,1 @@
-Simple analysis of palmerpenguins dataset in R language
+Prosta analiza pakietu "palmerpengiuns" w języku R
